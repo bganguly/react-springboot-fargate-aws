@@ -5,7 +5,7 @@ React UI + Spring Boot backend designed for an AWS-first deployment model.
 ## Live endpoints
 
 - UI: https://d30qivwhuhrmm1.cloudfront.net
-- API: http://aws-springboot-jobs-alb-1915626069.us-east-1.elb.amazonaws.com
+- API: https://de1to9rly31y0.cloudfront.net
 
 ## Local Docker requirement
 
