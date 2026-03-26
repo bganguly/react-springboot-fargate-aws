@@ -1,0 +1,17 @@
+{
+  "name": "aws-springboot-fullstack-sample",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "preview:frontend": "npm --prefix frontend run preview",
+    "dev:backend": "cd backend && mvn spring-boot:run",
+    "smoke:local:backend": "./scripts/smoke-local-backend.sh",
+    "smoke:local:ui": "./scripts/smoke-local-ui.sh",
+    "smoke:aws": "./scripts/smoke-aws-hosted.sh"
+  }
+}

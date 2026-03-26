@@ -1,0 +1,9 @@
+server:
+  port: 8080
+
+aws:
+  jobs:
+    enabled: ${AWS_JOBS_ENABLED:false}
+    tableName: ${AWS_JOBS_TABLE_NAME:jobs}
+    queueUrl: ${AWS_JOBS_QUEUE_URL:}
+    queuePollingEnabled: ${AWS_JOBS_QUEUE_POLLING_ENABLED:true}

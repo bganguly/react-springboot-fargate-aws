@@ -1,0 +1,42 @@
+{
+  "family": "aws-springboot-jobs",
+  "networkMode": "awsvpc",
+  "cpu": "512",
+  "memory": "1024",
+  "requiresCompatibilities": ["FARGATE"],
+  "executionRoleArn": "arn:aws:iam::<account-id>:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<account-id>:role/aws-springboot-jobs-task-role",
+  "containerDefinitions": [
+    {
+      "name": "api",
+      "image": "<account-id>.dkr.ecr.<region>.amazonaws.com/aws-springboot-jobs:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "AWS_JOBS_ENABLED", "value": "true" },
+        { "name": "AWS_JOBS_TABLE_NAME", "value": "jobs" },
+        { "name": "AWS_JOBS_QUEUE_POLLING_ENABLED", "value": "true" }
+      ],
+      "secrets": [
+        {
+          "name": "AWS_JOBS_QUEUE_URL",
+          "valueFrom": "arn:aws:ssm:<region>:<account-id>:parameter/aws-springboot/jobs/queue-url"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/aws-springboot-jobs",
+          "awslogs-region": "<region>",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
