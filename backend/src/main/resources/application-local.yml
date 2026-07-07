@@ -1,0 +1,4 @@
+# Local dev profile — activate with: SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
+# Port 3009 avoids collision with portfolio dev (9090), fargate frontend (3008).
+server:
+  port: 3009
