@@ -132,6 +132,11 @@ npm --prefix "${ROOT_DIR}/frontend" run build
 aws s3 sync "${ROOT_DIR}/frontend/dist" "s3://${SITE_BUCKET_NAME}" --delete --region "${REGION}"
 aws cloudfront create-invalidation --distribution-id "${DISTRIBUTION_ID}" --paths "/*" >/dev/null
 
+PORTFOLIO_SET_LIVE="$(cd "$ROOT_DIR/../../portfolio/scripts" 2>/dev/null && pwd || true)/set-live-url.sh"
+if [[ -n "${FRONTEND_URL:-}" && -f "$PORTFOLIO_SET_LIVE" ]]; then
+  bash "$PORTFOLIO_SET_LIVE" fargate "${FRONTEND_URL}" "${API_HTTPS_URL}"
+fi
+
 echo ""
 echo "[deploy] Done."
 echo "  API:      ${API_HTTPS_URL}"
