@@ -2,17 +2,12 @@
 
 React UI + Spring Boot backend designed for an AWS-first deployment model.
 
-## Live endpoints
+## Live Service
 
-The values below are placeholders (masked):
-
-- UI: https://{frontend-cloudfront-domain}
-- API: https://{api-cloudfront-domain}
-
-## Local Docker requirement
-
-Local Docker is not required for AWS deployment in this repo.
-Backend image build/push happens in AWS CodeBuild via `artifacts/aws/deploy.sh`.
+| | URL |
+|---|---|
+| **App** | https://{frontend-cloudfront-domain} |
+| **API** | https://{api-cloudfront-domain} |
 
 ## Screenshots
 
@@ -31,6 +26,86 @@ Main UI:
 	2. `PROCESSING`
 	3. `COMPLETED`
 
+## Running
+
+Backend image build/push runs in AWS CodeBuild — local Docker is not required.
+
+```bash
+./artifacts/aws/deploy.sh <stack-name> <region> <account-id> <vpc-id> <subnet-a> <subnet-b>
+./artifacts/aws/deploy-frontend.sh <frontend-stack-name> <region> <bucket-name> <api-url> frontend
+```
+
+## Architecture / Topology
+
+```
+Browser ──HTTPS──► CloudFront (CDN) ──► S3 (Vite dist)
+                        │
+                        └──HTTPS──► ALB ──► ECS Fargate: Spring Boot (:8080)
+                                                │                │
+                                                ▼                ▼
+                                           DynamoDB         SQS Queue
+                                          (jobs table)     (job msgs)
+                               ▲──────── CloudFormation (IaC) ──────────▲
+```
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              AWS Account                                │
+│                                                                         │
+│   ECR                                                                   │
+│   ┌──────────────────┐                                                  │
+│   │  backend image   │◄── CodeBuild (build + push from S3 source zip)  │
+│   └──────────────────┘                                                  │
+│           │ image pull                  CloudFormation (IaC)           │
+│           ▼                             manages all resources below     │
+│   ┌─────────────────────────────────────────────────────────────┐       │
+│   │                   VPC (public subnets)                      │       │
+│   │                                                             │       │
+│   │   ALB ──► ECS Fargate task                                  │       │
+│   │   ┌──────────────────────────────────────────────────┐      │       │
+│   │   │ Spring Boot (:8080)                              │      │       │
+│   │   │ • POST /jobs  → DynamoDB write + SQS enqueue     │      │       │
+│   │   │ • GET  /jobs/{id} → DynamoDB read                │      │       │
+│   │   │ • worker: SQS poll → PROCESSING → COMPLETED      │      │       │
+│   │   └────────────────────┬───────────────┬─────────────┘      │       │
+│   └────────────────────────┼───────────────┼────────────────────┘       │
+│                            │               │                             │
+│                 ┌──────────▼───────┐  ┌────▼─────────┐                 │
+│                 │   DynamoDB       │  │  SQS Queue   │                 │
+│                 │  (jobs table)    │  │  (job msgs)  │                 │
+│                 │  PENDING         │  └──────────────┘                 │
+│                 │  PROCESSING      │                                    │
+│                 │  COMPLETED       │                                    │
+│                 └──────────────────┘                                    │
+│                                                                         │
+│   CloudFront + S3 (frontend)                                           │
+│   ┌────────────────────────────────────────────────────┐               │
+│   │ CloudFront (HTTPS) ──► S3 bucket (Vite dist)       │               │
+│   └────────────────────────────────────────────────────┘               │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Deploy flow
+───────────
+local machine
+  └─ artifacts/aws/deploy.sh
+       ├─ upload source zip → S3
+       ├─ trigger CodeBuild → build + push image → ECR
+       └─ deploy infra.yaml (CloudFormation)
+            ├─ VPC / subnets / security groups
+            ├─ DynamoDB table
+            ├─ SQS queue + dead-letter queue
+            ├─ ECS cluster + Fargate task + ALB
+            └─ IAM roles + CloudWatch logs
+
+  └─ artifacts/aws/deploy-frontend.sh
+       ├─ deploy frontend-infra.yaml (CloudFormation)
+       │    ├─ S3 bucket (static hosting)
+       │    └─ CloudFront distribution
+       ├─ build React app (VITE_API_BASE_URL → ApiHttpsUrl)
+       ├─ upload dist/ → S3
+       └─ invalidate CloudFront cache
+```
+
 ## API
 
 - `POST /jobs` -> accepts `{ "message": "..." }`, returns `202` with `{ jobId, status }`
@@ -42,31 +117,6 @@ Main UI:
 - `frontend`: React + TypeScript + Vite
 - `backend`: Spring Boot API, queue worker loop, DynamoDB/SQS integration
 - `artifacts/aws`: deploy artifacts for ECS Fargate + DynamoDB + SQS
-
-## Local development
-
-Backend:
-
-```bash
-cd backend
-mvn spring-boot:run
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-cp .env.example .env.local
-npm run dev
-```
-
-Root scripts:
-
-```bash
-npm run dev
-npm run dev:backend
-```
 
 ## AWS mode configuration
 
@@ -180,82 +230,7 @@ The frontend script will:
 
 Use the `FrontendUrl` stack output as your public UI URL.
 
-## One script: down/up
-
-Use one script for both zero-cost teardown and full recreate:
-
-```bash
-chmod +x scripts/manage-aws-env.sh
-```
-
-Run in this order.
-
-1. Discover and export base values:
-
-```bash
-export ACCOUNT_ID="$(aws sts get-caller-identity --query 'Account' --output text)"
-export REGION="$(aws configure get region)"
-
-# if REGION is empty, set it manually
-# export REGION=us-east-1
-```
-
-2. Discover network values for `up`:
-
-```bash
-aws ec2 describe-vpcs --region "$REGION" --query 'Vpcs[].{VpcId:VpcId,Cidr:CidrBlock,IsDefault:IsDefault}' --output table
-
-# choose one VPC ID from above
-export VPC_ID=<vpc-id>
-
-aws ec2 describe-subnets --region "$REGION" --filters Name=vpc-id,Values="$VPC_ID" --query 'Subnets[].{SubnetId:SubnetId,AZ:AvailabilityZone,CIDR:CidrBlock}' --output table
-
-# choose two subnet IDs from different AZs
-export SUBNET_A=<subnet-a>
-export SUBNET_B=<subnet-b>
-```
-
-3. Set stack/bucket names (customize once):
-
-```bash
-export SITE_BUCKET_NAME="aws-springboot-frontend-${ACCOUNT_ID}-${REGION}-<suffix>"
-export BACKEND_STACK=<backend-stack-name>
-export FRONTEND_STACK=<frontend-stack-name>
-```
-
-4. Bring everything up (rebuild backend image in CodeBuild, deploy backend + frontend):
-
-```bash
-ACCOUNT_ID="$ACCOUNT_ID" REGION="$REGION" VPC_ID="$VPC_ID" SUBNET_A="$SUBNET_A" SUBNET_B="$SUBNET_B" SITE_BUCKET_NAME="$SITE_BUCKET_NAME" BACKEND_STACK="$BACKEND_STACK" FRONTEND_STACK="$FRONTEND_STACK" ./scripts/manage-aws-env.sh up
-```
-
-5. Bring everything down to near-zero app cost (deletes backend/frontend stacks and app buckets, removes build resources):
-
-```bash
-ACCOUNT_ID="$ACCOUNT_ID" REGION="$REGION" SITE_BUCKET_NAME="$SITE_BUCKET_NAME" BACKEND_STACK="$BACKEND_STACK" FRONTEND_STACK="$FRONTEND_STACK" ./scripts/manage-aws-env.sh down
-```
-
-Notes:
-
-- `up` requires `VPC_ID`, `SUBNET_A`, `SUBNET_B`.
-- `down` intentionally does not delete your VPC/subnets.
-- Script prints final API HTTPS URL and frontend URL after successful `up`.
-
 ## Smoke tests
-
-Run these as separate checks depending on what you want to verify.
-
-Local backend API check (backend must be running):
-
-```bash
-npm run smoke:local:backend
-```
-
-Local frontend availability check (frontend dev server must be running):
-
-```bash
-npm run smoke:local:ui
-```
 
 AWS hosted check (API + CloudFront frontend):
 
@@ -263,13 +238,8 @@ AWS hosted check (API + CloudFront frontend):
 npm run smoke:aws -- <api-base-url> <frontend-url>
 ```
 
-Examples:
+Example:
 
 ```bash
 npm run smoke:aws -- http://my-api-alb.amazonaws.com https://d123456abcdef.cloudfront.net
 ```
-
-Environment overrides:
-
-- `API_BASE_URL` for local backend smoke test (default: `http://localhost:8080`)
-- `UI_BASE_URL` / `ALT_UI_BASE_URL` for local UI smoke test (defaults: `http://localhost:5173` and `http://localhost:5174`)
