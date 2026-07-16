@@ -2,6 +2,14 @@
 
 React UI + Spring Boot backend designed for an AWS-first deployment model.
 
+**[→ Portfolio demo](https://bganguly.github.io/?open=fargate)**
+
+## Using the App
+
+1. Click **Create Job** to submit a job — the Spring Boot API writes to DynamoDB and enqueues via SQS.
+2. The UI polls `GET /jobs/{jobId}` and shows the state transition: `PENDING → PROCESSING → COMPLETED`.
+3. In local mode (`LOCAL_MEMORY`) jobs complete instantly in-memory; in AWS mode (`AWS_DYNAMODB_SQS`) processing runs asynchronously via the SQS consumer.
+
 ## Live Service
 
 | | URL |
@@ -34,6 +42,9 @@ Backend image build/push runs in AWS CodeBuild — local Docker is not required.
 ./artifacts/aws/deploy.sh <stack-name> <region> <account-id> <vpc-id> <subnet-a> <subnet-b>
 ./artifacts/aws/deploy-frontend.sh <frontend-stack-name> <region> <bucket-name> <api-url> frontend
 ```
+
+`deploy.sh` uploads a source zip to S3, triggers CodeBuild to build and push the Spring Boot image to ECR, then deploys `infra.yaml` (CloudFormation: VPC, DynamoDB, SQS, ECS Fargate, ALB).
+`deploy-frontend.sh` deploys `frontend-infra.yaml` (S3 + CloudFront), builds the React app with `VITE_API_BASE_URL` set to `ApiHttpsUrl`, uploads `dist/` to S3, and invalidates the CloudFront cache.
 
 ## Architecture / Topology
 
