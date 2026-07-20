@@ -8,15 +8,6 @@ BACKEND_STACK="${BACKEND_STACK:-aws-springboot-backend}"
 FRONTEND_STACK="${FRONTEND_STACK:-aws-springboot-frontend}"
 ECR_REPO="aws-springboot-jobs"
 
-_require() {
-  local var="$1" prompt="$2" val
-  if [[ -z "${!var:-}" ]]; then
-    read -rp "  ${prompt}: " val
-    [[ -z "${val}" ]] && { echo "Error: ${var} is required."; exit 1; }
-    printf -v "$var" '%s' "$val"
-  fi
-}
-
 echo "[1/5] Checking AWS credentials..."
 aws sts get-caller-identity >/dev/null 2>&1 || { echo "  Run: aws configure"; exit 1; }
 ACCOUNT_ID="${ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
@@ -33,9 +24,22 @@ fi
 
 SITE_BUCKET_NAME="${SITE_BUCKET_NAME:-aws-springboot-frontend-${ACCOUNT_ID}-${REGION}}"
 
-_require VPC_ID   "VPC ID (vpc-...)"
-_require SUBNET_A "Public subnet A (subnet-...)"
-_require SUBNET_B "Public subnet B (subnet-...)"
+if [[ -z "${VPC_ID:-}" ]]; then
+  VPC_ID="$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" \
+    --query 'Vpcs[0].VpcId' --output text --region "$REGION" 2>/dev/null)"
+  [[ -z "$VPC_ID" || "$VPC_ID" == "None" ]] && { echo "Error: no default VPC found. Set VPC_ID manually."; exit 1; }
+  printf '  Auto-detected VPC: %s\n' "$VPC_ID"
+fi
+
+if [[ -z "${SUBNET_A:-}" || -z "${SUBNET_B:-}" ]]; then
+  mapfile -t _SUBNETS < <(aws ec2 describe-subnets \
+    --filters "Name=vpc-id,Values=$VPC_ID" "Name=map-public-ip-on-launch,Values=true" \
+    --query 'Subnets[*].SubnetId' --output text --region "$REGION" 2>/dev/null | tr '\t' '\n')
+  [[ ${#_SUBNETS[@]} -lt 2 ]] && { echo "Error: need at least 2 public subnets in $VPC_ID."; exit 1; }
+  SUBNET_A="${_SUBNETS[0]}"
+  SUBNET_B="${_SUBNETS[1]}"
+  printf '  Auto-detected subnets: %s, %s\n' "$SUBNET_A" "$SUBNET_B"
+fi
 
 echo ""
 echo "[2/5] Provisioning ECR repository..."
