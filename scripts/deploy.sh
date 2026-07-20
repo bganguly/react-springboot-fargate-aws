@@ -24,12 +24,32 @@ fi
 
 SITE_BUCKET_NAME="${SITE_BUCKET_NAME:-aws-springboot-frontend-${ACCOUNT_ID}-${REGION}}"
 
+if [[ -z "${VPC_ID:-}" || -z "${SUBNET_A:-}" || -z "${SUBNET_B:-}" ]]; then
+  _STACK_PARAMS="$(aws cloudformation describe-stacks \
+    --stack-name "$BACKEND_STACK" --region "$REGION" \
+    --query 'Stacks[0].Parameters' --output json 2>/dev/null || echo '[]')"
+  _stack_param() { printf '%s' "$_STACK_PARAMS" | python3 -c \
+    "import sys,json; p={x['ParameterKey']:x['ParameterValue'] for x in json.load(sys.stdin)}; print(p.get('$1',''))" 2>/dev/null; }
+
+  VPC_ID="${VPC_ID:-$(_stack_param VpcId)}"
+  SUBNET_A="${SUBNET_A:-$(_stack_param PublicSubnetA)}"
+  SUBNET_B="${SUBNET_B:-$(_stack_param PublicSubnetB)}"
+fi
+
 if [[ -z "${VPC_ID:-}" ]]; then
   VPC_ID="$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" \
     --query 'Vpcs[0].VpcId' --output text --region "$REGION" 2>/dev/null)"
-  [[ -z "$VPC_ID" || "$VPC_ID" == "None" ]] && { echo "Error: no default VPC found. Set VPC_ID manually."; exit 1; }
-  printf '  Auto-detected VPC: %s\n' "$VPC_ID"
+  [[ "$VPC_ID" == "None" ]] && VPC_ID=""
 fi
+
+if [[ -z "${VPC_ID:-}" ]]; then
+  VPC_ID="$(aws ec2 describe-vpcs \
+    --query 'Vpcs[*].[VpcId,Tags[?Key==`Name`].Value|[0]]' --output text --region "$REGION" 2>/dev/null \
+    | sort -t$'\t' -k2 | head -1 | cut -f1)"
+fi
+
+[[ -z "${VPC_ID:-}" ]] && { echo "Error: no VPC found. Set VPC_ID manually."; exit 1; }
+printf '  VPC: %s\n' "$VPC_ID"
 
 if [[ -z "${SUBNET_A:-}" || -z "${SUBNET_B:-}" ]]; then
   mapfile -t _SUBNETS < <(aws ec2 describe-subnets \
@@ -38,7 +58,7 @@ if [[ -z "${SUBNET_A:-}" || -z "${SUBNET_B:-}" ]]; then
   [[ ${#_SUBNETS[@]} -lt 2 ]] && { echo "Error: need at least 2 public subnets in $VPC_ID."; exit 1; }
   SUBNET_A="${_SUBNETS[0]}"
   SUBNET_B="${_SUBNETS[1]}"
-  printf '  Auto-detected subnets: %s, %s\n' "$SUBNET_A" "$SUBNET_B"
+  printf '  Subnets: %s, %s\n' "$SUBNET_A" "$SUBNET_B"
 fi
 
 echo ""
