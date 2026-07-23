@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import BackToPortfolio from "./components/BackToPortfolio";
 
 type JobStatus = "PENDING" | "PROCESSING" | "COMPLETED";
 
@@ -157,6 +158,7 @@ export default function App() {
 
   return (
     <div className="page">
+      <BackToPortfolio />
       <main className="card">
         <h1>Spring Boot Job Runner</h1>
         <p>
